@@ -32,6 +32,7 @@ class BaseLogitsProcessor:
     def __init__(self, guide: Guide):
         self._guide: Guide = guide
         self._fsm_state: DefaultDict[int, int] = defaultdict(int)
+        self.mask_cache: Dict[int, torch.Tensor] = {}
 
     def __call__(self, input_ids: List[int],
                  scores: torch.Tensor) -> torch.Tensor:
@@ -44,22 +45,25 @@ class BaseLogitsProcessor:
             self._fsm_state[seq_id] = self._guide.get_next_state(
                 state=self._fsm_state[last_seq_id], token_id=last_token)
 
-        instruction = self._guide.get_next_instruction(
-            state=self._fsm_state[seq_id])
+        state_id = self._fsm_state[seq_id]
+        if state_id not in self.mask_cache:
+            instruction = self._guide.get_next_instruction(
+                state=self._fsm_state[seq_id])
+            if type(instruction) == Generate:
+                allowed_tokens = instruction.tokens
+            elif type(instruction) == Write:
+                # TODO: support fast forward tokens
+                allowed_tokens = [instruction.tokens[0]]
+            else:
+                raise TypeError(
+                    f"Unsupported instruction type {type(instruction)}")
 
-        if type(instruction) == Generate:
-            allowed_tokens = instruction.tokens
-        elif type(instruction) == Write:
-            # TODO: support fast forward tokens
-            allowed_tokens = [instruction.tokens[0]]
-        else:
-            raise TypeError(
-                f"Unsupported instruction type {type(instruction)}")
-
-        mask = torch.full((scores.shape[-1], ),
-                          -math.inf,
-                          device=scores.device)
-        mask[allowed_tokens] = 0
+            mask = torch.full((scores.shape[-1],),
+                              -math.inf)
+            mask[allowed_tokens] = 0
+            mask = mask.pin_memory()
+            self.mask_cache[state_id] = mask
+        mask = self.mask_cache[state_id].to(device=scores.device, non_blocking=True)
         scores.add_(mask)
         return scores
 
@@ -178,8 +182,8 @@ def _adapt_tokenizer(tokenizer: PreTrainedTokenizerBase):
         return string
 
     def change_decoder(
-        decoder: Callable[[List[int]],
-                          str]) -> Callable[[List[int]], List[str]]:
+            decoder: Callable[[List[int]],
+            str]) -> Callable[[List[int]], List[str]]:
         """Sync vLLM's decoder with the outlines by returning list."""
 
         def new_decoder(inp_tokens: List[int]) -> List[str]:
