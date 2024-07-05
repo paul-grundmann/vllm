@@ -69,7 +69,7 @@ async def get_outlines_guided_decoding_logits_processor(
 
     if global_thread_pool is None:
         global_thread_pool = concurrent.futures.ThreadPoolExecutor(
-            max_workers=2)
+            max_workers=3)
     loop = asyncio.get_running_loop()
 
     return await loop.run_in_executor(global_thread_pool,
@@ -108,13 +108,17 @@ def _get_guide_and_mode(
     else:
         return None, None
 
+lps = {}
 
 def _get_logits_processor(
     guide: str, tokenizer: PreTrainedTokenizerBase, mode: GuidedDecodingMode,
     whitespace_pattern: Union[str, None]
 ) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor]:
+    global lps
     if mode == GuidedDecodingMode.JSON:
-        return JSONLogitsProcessor(guide, tokenizer, whitespace_pattern)
+        if guide not in lps:
+            lps[guide] = JSONLogitsProcessor(guide, tokenizer, whitespace_pattern)
+        return lps[guide]
     elif mode == GuidedDecodingMode.REGEX or mode == GuidedDecodingMode.CHOICE:
         return RegexLogitsProcessor(guide, tokenizer)
     elif mode == GuidedDecodingMode.GRAMMAR:
