@@ -21,6 +21,7 @@ from functools import lru_cache
 from typing import Callable, DefaultDict, Dict, List, Union
 
 import torch
+from outlines.caching import cache
 from outlines.fsm.guide import CFGGuide, Generate, Guide, RegexGuide, Write
 from outlines.fsm.json_schema import build_regex_from_schema
 from pydantic import BaseModel
@@ -71,7 +72,7 @@ class BaseLogitsProcessor:
 class RegexLogitsProcessor(BaseLogitsProcessor):
 
     @classmethod
-    @lru_cache(maxsize=32)
+    @cache()
     def _get_guide(cls, regex_string: str,
                    tokenizer: PreTrainedTokenizerBase) -> Guide:
         tokenizer = _adapt_tokenizer(tokenizer)
@@ -130,7 +131,7 @@ class JSONLogitsProcessor(RegexLogitsProcessor):
 class CFGLogitsProcessor(BaseLogitsProcessor):
 
     @classmethod
-    @lru_cache(maxsize=32)
+    @cache()
     def _get_guide(cls, cfg: str, tokenizer: PreTrainedTokenizerBase) -> Guide:
         tokenizer = _adapt_tokenizer(tokenizer)
         return CFGGuide(cfg, tokenizer)
