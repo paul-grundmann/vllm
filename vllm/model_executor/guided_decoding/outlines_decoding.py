@@ -10,8 +10,6 @@ from transformers import PreTrainedTokenizerBase
 
 from vllm.entrypoints.openai.protocol import (ChatCompletionRequest,
                                               CompletionRequest)
-from vllm.model_executor.guided_decoding.guided_fields import (
-    GuidedDecodingRequest)
 from vllm.model_executor.guided_decoding.outlines_logits_processors import (
     CFGLogitsProcessor, JSONLogitsProcessor, RegexLogitsProcessor)
 
@@ -79,27 +77,8 @@ async def get_outlines_guided_decoding_logits_processor(
                                       mode, request.guided_whitespace_pattern)
 
 
-def get_local_outlines_guided_decoding_logits_processor(
-    guided_options: GuidedDecodingRequest, tokenizer: PreTrainedTokenizerBase
-) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor,
-           None]:
-    """
-    Given an OpenAI-compatible request, check for guided decoding parameters
-    and get the necessary logits processor for the given guide.
-    We cache logit processors by (guide, tokenizer), and on cache hit
-    we make a shallow copy to reuse the same underlying FSM.
-    """
-    guide, mode = _get_guide_and_mode(guided_options)
-    if not guide or not mode:
-        return None
-
-    return _get_logits_processor(guide, tokenizer, mode,
-                                 guided_options.guided_whitespace_pattern)
-
-
 def _get_guide_and_mode(
-    request: Union[CompletionRequest, ChatCompletionRequest,
-                   GuidedDecodingRequest]
+    request: Union[CompletionRequest, ChatCompletionRequest]
 ) -> Union[Tuple[str, GuidedDecodingMode], Tuple[None, None]]:
 
     if request.guided_json:
@@ -123,8 +102,7 @@ def _get_guide_and_mode(
         return choices_regex, GuidedDecodingMode.CHOICE
     elif request.guided_grammar:
         return request.guided_grammar, GuidedDecodingMode.GRAMMAR
-    elif (not isinstance(request, GuidedDecodingRequest)
-          and request.response_format is not None
+    elif (request.response_format is not None
           and request.response_format.type == "json_object"):
         return JSON_GRAMMAR, GuidedDecodingMode.GRAMMAR
     else:
