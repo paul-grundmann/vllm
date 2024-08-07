@@ -71,7 +71,7 @@ async def get_outlines_guided_decoding_logits_processor(
 
     if global_thread_pool is None:
         global_thread_pool = concurrent.futures.ThreadPoolExecutor(
-            max_workers=2)
+            max_workers=1)
     loop = asyncio.get_running_loop()
 
     return await loop.run_in_executor(global_thread_pool,
