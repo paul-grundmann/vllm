@@ -5,12 +5,21 @@ import cloudpickle
 import zmq
 import zmq.asyncio
 
-from vllm.config import (DecodingConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig)
-from vllm.entrypoints.openai.rpc import (RPC_REQUEST_TYPE,
-                                         VLLM_RPC_HEALTHY_STR,
-                                         VLLM_RPC_SUCCESS_STR, RPCAbortRequest,
-                                         RPCGenerateRequest, RPCUtilityRequest)
+from vllm.config import (
+    DecodingConfig,
+    LoRAConfig,
+    ModelConfig,
+    ParallelConfig,
+    SchedulerConfig,
+)
+from vllm.entrypoints.openai.rpc import (
+    RPC_REQUEST_TYPE,
+    VLLM_RPC_HEALTHY_STR,
+    VLLM_RPC_SUCCESS_STR,
+    RPCAbortRequest,
+    RPCGenerateRequest,
+    RPCUtilityRequest,
+)
 from vllm.inputs import PromptInputs
 from vllm.lora.request import LoRARequest
 from vllm.outputs import EmbeddingRequestOutput, RequestOutput
@@ -23,7 +32,6 @@ SERVER_START_TIMEOUT_MS = 1000
 
 
 class AsyncEngineRPCClient:
-
     def __init__(self, rpc_path: str):
         self.context = zmq.asyncio.Context()
         self.rpc_path = rpc_path
@@ -39,6 +47,7 @@ class AsyncEngineRPCClient:
         self.model_config = await self._get_model_config_rpc()
         self.decoding_config = await self._get_decoding_config_rpc()
         self.tracing_flag = await self._is_tracing_enabled_rpc()
+        self.sent_initial_logits_processor = False
 
         # Create the tokenizer group.
         # TODO: refactor OAI server to avoid needing this info.
@@ -76,13 +85,12 @@ class AsyncEngineRPCClient:
             # Reference: http://api.zeromq.org/4-2:zmq-setsockopt#toc24
             socket.close(linger=0)
 
-    async def _send_get_data_rpc_request(self, request: RPCUtilityRequest,
-                                         expected_type: Any,
-                                         error_message: str) -> Any:
+    async def _send_get_data_rpc_request(
+        self, request: RPCUtilityRequest, expected_type: Any, error_message: str
+    ) -> Any:
         """Send an RPC request that is expecting data back."""
 
         with self.socket() as socket:
-
             # Ping RPCServer with a request.
             await socket.send(cloudpickle.dumps(request))
 
@@ -98,10 +106,12 @@ class AsyncEngineRPCClient:
 
         return data
 
-    async def _send_one_way_rpc_request(self,
-                                        request: RPC_REQUEST_TYPE,
-                                        error_message: str,
-                                        timeout: Optional[int] = None):
+    async def _send_one_way_rpc_request(
+        self,
+        request: RPC_REQUEST_TYPE,
+        error_message: str,
+        timeout: Optional[int] = None,
+    ):
         """Send one-way RPC request to trigger an action."""
         with self.socket() as socket:
             # Ping RPC Server with request.
@@ -136,7 +146,8 @@ class AsyncEngineRPCClient:
         await self._send_one_way_rpc_request(
             request=RPCUtilityRequest.IS_SERVER_READY,
             error_message="Unable to start RPC Server.",
-            timeout=SERVER_START_TIMEOUT_MS)
+            timeout=SERVER_START_TIMEOUT_MS,
+        )
 
     async def _get_model_config_rpc(self) -> ModelConfig:
         """Get the ModelConfig object from the RPC Server"""
@@ -144,7 +155,8 @@ class AsyncEngineRPCClient:
         return await self._send_get_data_rpc_request(
             RPCUtilityRequest.GET_MODEL_CONFIG,
             expected_type=ModelConfig,
-            error_message="Could not get ModelConfig from RPC Server")
+            error_message="Could not get ModelConfig from RPC Server",
+        )
 
     async def _get_decoding_config_rpc(self) -> DecodingConfig:
         """Get DecodingConfig from the RPCServer"""
@@ -152,7 +164,8 @@ class AsyncEngineRPCClient:
         return await self._send_get_data_rpc_request(
             RPCUtilityRequest.GET_DECODING_CONFIG,
             expected_type=DecodingConfig,
-            error_message="Could not get DecodingConfig from RPC Server")
+            error_message="Could not get DecodingConfig from RPC Server",
+        )
 
     async def _get_parallel_config_rpc(self) -> ParallelConfig:
         """Get ParallelConfig from the RPCServer"""
@@ -160,7 +173,8 @@ class AsyncEngineRPCClient:
         return await self._send_get_data_rpc_request(
             RPCUtilityRequest.GET_PARALLEL_CONFIG,
             expected_type=ParallelConfig,
-            error_message="Could not get ParallelConfig from RPC Server")
+            error_message="Could not get ParallelConfig from RPC Server",
+        )
 
     async def _get_scheduler_config_rpc(self) -> SchedulerConfig:
         """Get SchedulerConfig from the RPCServer"""
@@ -168,7 +182,8 @@ class AsyncEngineRPCClient:
         return await self._send_get_data_rpc_request(
             RPCUtilityRequest.GET_SCHEDULER_CONFIG,
             expected_type=SchedulerConfig,
-            error_message="Could not get SchedulerConfig from RPC Server")
+            error_message="Could not get SchedulerConfig from RPC Server",
+        )
 
     async def _get_lora_config_rpc(self) -> LoRAConfig:
         """Get LoRAConfig from the RPCServer"""
@@ -176,7 +191,8 @@ class AsyncEngineRPCClient:
         return await self._send_get_data_rpc_request(
             RPCUtilityRequest.GET_LORA_CONFIG,
             expected_type=LoRAConfig,
-            error_message="Could not get LoRAConfig from RPC Server")
+            error_message="Could not get LoRAConfig from RPC Server",
+        )
 
     async def _is_tracing_enabled_rpc(self) -> bool:
         """Get is_tracing_enabled flag from the RPCServer"""
@@ -184,22 +200,24 @@ class AsyncEngineRPCClient:
         return await self._send_get_data_rpc_request(
             RPCUtilityRequest.IS_TRACING_ENABLED,
             expected_type=bool,
-            error_message="Could not get is_tracing_enabled flag from RPC "
-            "Server")
+            error_message="Could not get is_tracing_enabled flag from RPC " "Server",
+        )
 
     async def abort(self, request_id: str):
         """Send an ABORT_REQUEST signal to the RPC Server"""
 
         await self._send_one_way_rpc_request(
             request=RPCAbortRequest(request_id),
-            error_message=f"RPCAbortRequest {request_id} failed")
+            error_message=f"RPCAbortRequest {request_id} failed",
+        )
 
     async def do_log_stats(self):
         """Send a DO_LOG_STATS signal to the RPC Server"""
 
         await self._send_one_way_rpc_request(
             request=RPCUtilityRequest.DO_LOG_STATS,
-            error_message="RPCRequest DO_LOG_STATS failed.")
+            error_message="RPCRequest DO_LOG_STATS failed.",
+        )
 
     @property
     def is_running(self) -> bool:
@@ -220,25 +238,37 @@ class AsyncEngineRPCClient:
         request_id: str,
         lora_request: Optional[LoRARequest] = None,
         trace_headers: Optional[Mapping[str, str]] = None,
-        prompt_adapter_request: Optional[PromptAdapterRequest] = None
+        prompt_adapter_request: Optional[PromptAdapterRequest] = None,
     ) -> AsyncGenerator[RequestOutput, None]:
         """Send an RPCGenerateRequest to the RPCServer and stream responses."""
 
         finished = False
         try:
             with self.socket() as socket:
-
                 # Send RPCGenerateRequest to the RPCServer.
-                await socket.send_multipart([
-                    cloudpickle.dumps(
-                        RPCGenerateRequest(
-                            inputs=inputs,
-                            sampling_params=sampling_params,
-                            request_id=request_id,
-                            lora_request=lora_request,
-                            trace_headers=trace_headers,
-                            prompt_adapter_request=prompt_adapter_request))
-                ])
+
+                if (
+                    self.sent_initial_logits_processor
+                    and len(sampling_params.logits_processors) > 0
+                ):
+                    sampling_params.logits_processors[0]._guide = None
+                    sampling_params.logits_processors[0]._fsm_state = None
+
+                await socket.send_multipart(
+                    [
+                        cloudpickle.dumps(
+                            RPCGenerateRequest(
+                                inputs=inputs,
+                                sampling_params=sampling_params,
+                                request_id=request_id,
+                                lora_request=lora_request,
+                                trace_headers=trace_headers,
+                                prompt_adapter_request=prompt_adapter_request,
+                            )
+                        )
+                    ]
+                )
+                self.sent_initial_logits_processor = True
 
                 # Stream back the results from the RPC Server.
                 while not finished:
@@ -267,10 +297,8 @@ class AsyncEngineRPCClient:
         """Raise if unhealthy"""
 
         with self.socket() as socket:
-
             # Ping RPCServer with CHECK_HEALTH request.
-            await socket.send(cloudpickle.dumps(RPCUtilityRequest.CHECK_HEALTH)
-                              )
+            await socket.send(cloudpickle.dumps(RPCUtilityRequest.CHECK_HEALTH))
 
             # Await the reply from the server.
             # TODO: do we need an internal timeout here?
@@ -281,10 +309,13 @@ class AsyncEngineRPCClient:
             raise health_message
 
         if health_message != VLLM_RPC_HEALTHY_STR:
-            raise ValueError("Expected healthy response from backend but got "
-                             "f{health_message}")
+            raise ValueError(
+                "Expected healthy response from backend but got " "f{health_message}"
+            )
 
-    async def encode(self, *args,
-                     **kwargs) -> AsyncGenerator[EmbeddingRequestOutput, None]:
+    async def encode(
+        self, *args, **kwargs
+    ) -> AsyncGenerator[EmbeddingRequestOutput, None]:
         raise NotImplementedError(
-            "Embeddings not supported with multiprocessing backend")
+            "Embeddings not supported with multiprocessing backend"
+        )

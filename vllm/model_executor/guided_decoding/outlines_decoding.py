@@ -8,12 +8,13 @@ from typing import Tuple, Union
 from pydantic import BaseModel
 from transformers import PreTrainedTokenizerBase
 
-from vllm.entrypoints.openai.protocol import (ChatCompletionRequest,
-                                              CompletionRequest)
-from vllm.model_executor.guided_decoding.guided_fields import (
-    GuidedDecodingRequest)
+from vllm.entrypoints.openai.protocol import ChatCompletionRequest, CompletionRequest
+from vllm.model_executor.guided_decoding.guided_fields import GuidedDecodingRequest
 from vllm.model_executor.guided_decoding.outlines_logits_processors import (
-    CFGLogitsProcessor, JSONLogitsProcessor, RegexLogitsProcessor)
+    CFGLogitsProcessor,
+    JSONLogitsProcessor,
+    RegexLogitsProcessor,
+)
 
 
 class GuidedDecodingMode(Enum):
@@ -52,12 +53,13 @@ pair   : UNESCAPED_STRING ":" value
 
 global_thread_pool = None  # used for generating logits processor fsm
 
+lps = None
+
 
 async def get_outlines_guided_decoding_logits_processor(
-    request: Union[CompletionRequest,
-                   ChatCompletionRequest], tokenizer: PreTrainedTokenizerBase
-) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor,
-           None]:
+    request: Union[CompletionRequest, ChatCompletionRequest],
+    tokenizer: PreTrainedTokenizerBase,
+) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor, None]:
     """
     Given an OpenAI-compatible request, check for guided decoding parameters
     and get the necessary logits processor for the given guide.
@@ -69,20 +71,30 @@ async def get_outlines_guided_decoding_logits_processor(
     if not guide or not mode:
         return None
 
+    global lps
+    if lps is None:
+        lps = JSONLogitsProcessor(guide, tokenizer, request.guided_whitespace_pattern)
+
+    return lps
+    """
     if global_thread_pool is None:
-        global_thread_pool = concurrent.futures.ThreadPoolExecutor(
-            max_workers=2)
+        global_thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     loop = asyncio.get_running_loop()
 
-    return await loop.run_in_executor(global_thread_pool,
-                                      _get_logits_processor, guide, tokenizer,
-                                      mode, request.guided_whitespace_pattern)
+    return await loop.run_in_executor(
+        global_thread_pool,
+        _get_logits_processor,
+        guide,
+        tokenizer,
+        mode,
+        request.guided_whitespace_pattern,
+    )
+    """
 
 
 def get_local_outlines_guided_decoding_logits_processor(
     guided_options: GuidedDecodingRequest, tokenizer: PreTrainedTokenizerBase
-) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor,
-           None]:
+) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor, None]:
     """
     Given an OpenAI-compatible request, check for guided decoding parameters
     and get the necessary logits processor for the given guide.
@@ -93,15 +105,14 @@ def get_local_outlines_guided_decoding_logits_processor(
     if not guide or not mode:
         return None
 
-    return _get_logits_processor(guide, tokenizer, mode,
-                                 guided_options.guided_whitespace_pattern)
+    return _get_logits_processor(
+        guide, tokenizer, mode, guided_options.guided_whitespace_pattern
+    )
 
 
 def _get_guide_and_mode(
-    request: Union[CompletionRequest, ChatCompletionRequest,
-                   GuidedDecodingRequest]
+    request: Union[CompletionRequest, ChatCompletionRequest, GuidedDecodingRequest]
 ) -> Union[Tuple[str, GuidedDecodingMode], Tuple[None, None]]:
-
     if request.guided_json:
         json = request.guided_json
         if isinstance(json, dict):
@@ -116,25 +127,31 @@ def _get_guide_and_mode(
         return request.guided_regex, GuidedDecodingMode.REGEX
     elif request.guided_choice:
         # choice just uses regex
-        choices = [
-            regex_escape(str(choice)) for choice in request.guided_choice
-        ]
+        choices = [regex_escape(str(choice)) for choice in request.guided_choice]
         choices_regex = "(" + "|".join(choices) + ")"
         return choices_regex, GuidedDecodingMode.CHOICE
     elif request.guided_grammar:
         return request.guided_grammar, GuidedDecodingMode.GRAMMAR
-    elif (not isinstance(request, GuidedDecodingRequest)
-          and request.response_format is not None
-          and request.response_format.type == "json_object"):
+    elif (
+        not isinstance(request, GuidedDecodingRequest)
+        and request.response_format is not None
+        and request.response_format.type == "json_object"
+    ):
         return JSON_GRAMMAR, GuidedDecodingMode.GRAMMAR
     else:
         return None, None
 
 
 def _get_logits_processor(
-    guide: str, tokenizer: PreTrainedTokenizerBase, mode: GuidedDecodingMode,
-    whitespace_pattern: Union[str, None]
+    guide: str,
+    tokenizer: PreTrainedTokenizerBase,
+    mode: GuidedDecodingMode,
+    whitespace_pattern: Union[str, None],
 ) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor]:
+    global lps
+    if lps is None:
+        lps = JSONLogitsProcessor(guide, tokenizer, whitespace_pattern)
+    return lps
     if mode == GuidedDecodingMode.JSON:
         return JSONLogitsProcessor(guide, tokenizer, whitespace_pattern)
     elif mode == GuidedDecodingMode.REGEX or mode == GuidedDecodingMode.CHOICE:
