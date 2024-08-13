@@ -28,7 +28,7 @@ from vllm.sampling_params import SamplingParams
 from vllm.transformers_utils.tokenizer_group import init_tokenizer_from_configs
 
 # Time to wait before checking it the server process is alive.
-SERVER_START_TIMEOUT_MS = 10000
+SERVER_START_TIMEOUT_MS = 1000000000
 
 
 class AsyncEngineRPCClient:
